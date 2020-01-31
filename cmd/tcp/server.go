@@ -44,13 +44,19 @@ func (u *User) String() string {
 		u.EnterAt.Format("2006-01-02 15:04:05+8000")
 }
 
+// 给用户发送的消息
+type Message struct {
+	OwnerID int
+	Content string
+}
+
 var (
 	// 新用户到来，通过该 channel 进行登记
 	enteringChannel = make(chan *User)
 	// 用户离开，通过该 channel 进行登记
 	leavingChannel = make(chan *User)
-	// 广播专用的用户普通消息 channel
-	messageChannel = make(chan string, 8)
+	// 广播专用的用户普通消息 channel，缓冲是尽可能避免出现异常情况堵塞
+	messageChannel = make(chan Message, 8)
 )
 
 // broadcaster 用于记录聊天室用户，并进行消息广播：
@@ -71,7 +77,10 @@ func broadcaster() {
 		case msg := <-messageChannel:
 			// 给所有在线用户发送消息
 			for user := range users {
-				user.MessageChannel <- msg
+				if user.ID == msg.OwnerID {
+					continue
+				}
+				user.MessageChannel <- msg.Content
 			}
 		}
 	}
@@ -94,27 +103,48 @@ func handleConn(conn net.Conn) {
 
 	// 3. 给当前用户发送欢迎信息；给所有用户告知新用户到来
 	user.MessageChannel <- "Welcome, " + user.String()
-	messageChannel <- "user:`" + strconv.Itoa(user.ID) + "` has enter"
+	msg := Message{
+		OwnerID: user.ID,
+		Content: "user:`" + strconv.Itoa(user.ID) + "` has enter",
+	}
+	messageChannel <- msg
 
 	// 4. 将该记录到全局的用户列表中，避免用锁
 	enteringChannel <- user
 
+	// 控制超时用户踢出
+	var userActive = make(chan struct{})
+	go func() {
+		d := 1 * time.Minute
+		timer := time.NewTimer(d)
+		for {
+			select {
+			case <-timer.C:
+				conn.Close()
+			case <-userActive:
+				timer.Reset(d)
+			}
+		}
+	}()
+
 	// 5. 循环读取用户的输入
 	input := bufio.NewScanner(conn)
-	for {
-		if input.Scan() {
-			messageChannel <- strconv.Itoa(user.ID) + ":" + input.Text()
-		} else if err := input.Err(); err == nil {
-			// 遇到了 EOF
-			break
-		} else {
-			log.Println("读取错误：", err)
-		}
+	for input.Scan() {
+		msg.Content = strconv.Itoa(user.ID) + ":" + input.Text()
+		messageChannel <- msg
+
+		// 用户活跃
+		userActive <- struct{}{}
+	}
+
+	if err := input.Err(); err != nil {
+		log.Println("读取错误：", err)
 	}
 
 	// 6. 用户离开
 	leavingChannel <- user
-	messageChannel <- "user:`" + strconv.Itoa(user.ID) + "` has left"
+	msg.Content = "user:`" + strconv.Itoa(user.ID) + "` has left"
+	messageChannel <- msg
 }
 
 func sendMessage(conn net.Conn, ch <-chan string) {
