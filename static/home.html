@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>聊天室 —— Go编程之旅</title>
+
+    <link href="https://cdn.bootcss.com/twitter-bootstrap/3.4.1/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .msg-list { height: 400px; overflow: scroll; border: 1px solid #ccc; background-color: #f3f3f3; display: flex;flex-direction: column; }
+        .message { margin: 15px 5px 5px 5px; padding: 5px; background-color: #fff; }
+        .message { align-self: flex-start; }
+        .message .meta { color: #ccc; font-size: 12px; }
+        .message .author { color: #999; font-weight: bold; }
+        .myself { background-color: #b0e46e !important; align-self: flex-end; }
+        .myself .meta { color: #2b2b2b; }
+
+        .system { background-color: #f3f3f3; color: #ccc; align-self: center; }
+
+        .user-list { padding-left: 10px; height: 400px; overflow: scroll; border: 1px solid #ccc; background-color: #f3f3f3; }
+        .user-list .user { background-color: #fff; margin: 5px; }
+
+        .user-input { margin: 10px; }
+        .usertip { color: red; }
+    </style>
+</head>
+<body>
+
+<div class="container" id="app">
+    <div class="row">
+        <div class="col-md-12">
+            <div class="page-header">
+                <h2 class="text-center">欢迎来到《Go 编程之旅：一起用 Go 做项目》聊天室</h2>
+            </div>
+        </div>
+    </div>
+    <div class="row">
+        <div class="col-md-1"></div>
+        <div class="col-md-6">
+            <div>聊天内容</div>
+            <div class="msg-list" id="msg-list">
+                <div class="message" v-for="msg in msglist" v-bind:class="{ system: msg.type==1, myself: msg.user.nickname==nickname }">
+                    <div class="meta" v-if="msg.user.nickname"><span class="author">${ msg.user.nickname }</span> at ${ formatDate(msg.msg_time) }</div>
+                    <div>
+                        <span class="content" style="white-space: pre-wrap;">${ msg.content }</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div>当前在线用户数：<font color="red">${ onlineUserNum }</font></div>
+            <div class="user-list">
+                <div class="user" v-for="user in users">
+                    用户：@${ user.nickname } 加入时间：${ formatDate(user.enter_at) }
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="row">
+        <div class="col-md-1"></div>
+        <div class="col-md-10">
+            <div class="user-input">
+                <div class="usertip text-center">${ usertip }</div>
+                <div class="form-inline has-success text-center" style="margin-bottom: 10px;">
+                    <div class="input-group">
+                        <span class="input-group-addon">您的昵称</span>
+                        <input type="text" v-model="nickname" v-bind:disabled="joined" class="form-control" aria-describedby="inputGroupSuccess1Status">
+                    </div>
+                    <input type="submit" class="form-control btn-primary text-center" v-on:click="leavechat" v-if="joined" value="离开聊天室">
+                    <input type="submit" class="form-control btn-primary text-center" v-on:click="joinchat" v-else="joined" value="进入聊天室">
+                </div>
+                <textarea id="chat-content" rows="3" class="form-control" v-model="content"
+                          @keydown.enter.prevent.exact="sendChatContent"
+                          @keydown.meta.enter="lineFeed"
+                          @keydown.ctrl.enter="lineFeed"
+                          placeholder="在此收入聊天内容。ctrl/command+enter 换行，enter 发送"></textarea>&nbsp;
+                <input type="button" value="发送(Enter)" class="btn-primary form-control" v-on:click="sendChatContent">
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+<script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+<script type="text/javascript">
+    let gWS;
+    let app = new Vue({
+        el: '#app',
+        data: {
+            msglist: [],
+            content: "",
+            nickname: "",
+            usertip: "当前还未进入聊天室，请在下方「填上您的昵称」",
+
+            // 是否已经加入聊天室
+            joined: false,
+
+            users: [],
+        },
+        mounted: function() {
+            let nickname = localStorage.getItem("nickname");
+            if (nickname) {
+                this.nickname = nickname;
+                this.joinchat();
+            }
+
+            setInterval(this.keepAlive, 10000);
+        },
+        computed: {
+            onlineUserNum: function() {
+                return this.users.length;
+            }
+        },
+        methods: {
+            joinchat: function () {
+                let that = this;
+
+                if (this.nickname == "") {
+                    this.usertip = "昵称不能为空";
+                    return;
+                }
+
+                this.usertip = "";
+
+                this.joined = true;
+
+                localStorage.setItem("nickname", this.nickname);
+
+                if ("WebSocket" in window) {
+                    let host = location.host;
+                    // 打开一个 websocket 连接
+                    gWS = new WebSocket("ws://"+host+"/ws?nickname="+this.nickname);
+
+                    gWS.onopen = function () {
+                        // WebSocket 已连接上的回调
+                    };
+
+                    gWS.onmessage = function (evt) {
+                        let data = JSON.parse(evt.data);
+                        if (data.type == 2) {
+                            that.usertip = "用户昵称已存在，请换一个！"
+                            that.joined = false;
+                        } else if (data.type == 3) {
+                            // 用户列表
+                            that.users.splice(0);
+                            for (let nickname in data.users) {
+                                that.users.push(data.users[nickname]);
+                            }
+                        } else {
+                            that.addMsg2List(data);
+                        }
+                    };
+
+                    gWS.onerror = function(evt) {
+                        console.log("发生错误：");
+                        console.log(evt);
+                    };
+
+                    gWS.onclose = function () {
+                        console.log("连接已关闭...");
+                    };
+
+                } else {
+                    alert("您的浏览器不支持 WebSocket!");
+                }
+            },
+            leavechat: function() {
+                localStorage.removeItem("nickname");
+                gWS.close();
+
+                this.addMsg2List({
+                    user: {nickname: ""},
+                    type: 1,
+                    content: '您已离开聊天室，再见！',
+                });
+
+                this.joined = false;
+            },
+            sendChatContent: function() {
+                let msg = JSON.stringify({"content": this.content});
+                gWS.send(msg);
+
+                let data = {
+                    user: {
+                        nickname: this.nickname,
+                    },
+                    content: this.content,
+                    msg_time: new Date().getTime(),
+                };
+
+                this.addMsg2List(data);
+                this.content = "";
+            },
+            // 换行
+            lineFeed: function(evt) {
+                this.content = this.content + '\n';
+            },
+            formatDate: function(dateStr) {
+                let d = new Date(dateStr);
+                return d.toLocaleTimeString();
+            },
+
+            addMsg2List: function(data) {
+                if (data.content == "") {
+                    return;
+                }
+
+                this.msglist.push(data);
+
+                // 需要等待渲染？
+                setTimeout(function(){
+                    let msgList = document.querySelector('#msg-list');
+                    msgList.scrollTop = msgList.scrollHeight;
+                }, 1);
+            },
+
+            // 保活
+            keepAlive: function() {
+                // 表明异常退出了
+                if (gWS.readyState == WebSocket.CLOSED && this.joined) {
+                    console.log("reconnect");
+                    this.joinchat();
+                }
+            },
+        },
+        delimiters:['${', '}']
+    })
+
+</script>
+
+</html>
