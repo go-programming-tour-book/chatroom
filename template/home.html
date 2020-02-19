@@ -94,6 +94,7 @@
             curUser: {
                 uid: 0,
                 nickname: '',
+                token: '',
             },
             usertip: "当前还未进入聊天室，请在下方「填上您的昵称」",
 
@@ -131,7 +132,7 @@
                 if ("WebSocket" in window) {
                     let host = location.host;
                     // 打开一个 websocket 连接
-                    gWS = new WebSocket("ws://"+host+"/ws?nickname="+this.curUser.nickname+"&uid="+this.curUser.uid);
+                    gWS = new WebSocket("ws://"+host+"/ws?nickname="+this.curUser.nickname+"&token="+this.curUser.token);
 
                     gWS.onopen = function () {
                         // WebSocket 已连接上的回调

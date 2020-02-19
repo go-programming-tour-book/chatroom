@@ -4,22 +4,21 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"regexp"
-	"sync"
+	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/spf13/cast"
 	"github.com/spf13/viper"
 	"nhooyr.io/websocket"
 	"nhooyr.io/websocket/wsjson"
 )
 
-var (
-	globalUID uint32 = 0
-	uidLocker sync.Mutex
-)
+var globalUID uint32 = 0
 
 type User struct {
 	UID            int           `json:"uid"`
@@ -37,28 +36,28 @@ type User struct {
 // 系统用户，代表是系统主动发送的消息
 var System = &User{}
 
-func NewUser(conn *websocket.Conn, uid int, nickname, addr string) *User {
+func NewUser(conn *websocket.Conn, token, nickname, addr string) *User {
 	user := &User{
-		UID:            uid,
 		NickName:       nickname,
 		Addr:           addr,
 		EnterAt:        time.Now(),
 		MessageChannel: make(chan *Message, 8),
+		Token:          token,
 
 		conn: conn,
 	}
 
+	if user.Token != "" {
+		uid, err := parseTokenAndValidate(token, nickname)
+		if err == nil {
+			user.UID = uid
+		}
+	}
+
 	if user.UID == 0 {
 		user.UID = int(atomic.AddUint32(&globalUID, 1))
+		user.Token = genToken(user.UID, user.NickName)
 		user.isNew = true
-	} else {
-		uidLocker.Lock()
-		curUID := globalUID
-		uidLocker.Unlock()
-		if curUID <= uint32(user.UID) {
-			user.UID = int(atomic.AddUint32(&globalUID, 1))
-			user.isNew = true
-		}
 	}
 
 	return user
@@ -110,11 +109,37 @@ func genToken(uid int, nickname string) string {
 
 	messageMAC := macSha256([]byte(message), []byte(secret))
 
-	return fmt.Sprintf("%suid%d", messageMAC, uid)
+	return fmt.Sprintf("%suid%d", base64.StdEncoding.EncodeToString(messageMAC), uid)
 }
 
-func macSha256(message, key []byte) []byte {
-	mac := hmac.New(sha256.New, key)
+func parseTokenAndValidate(token, nickname string) (int, error) {
+	pos := strings.LastIndex(token, "uid")
+	messageMAC, err := base64.StdEncoding.DecodeString(token[:pos])
+	if err != nil {
+		return 0, err
+	}
+	uid := cast.ToInt(token[pos+3:])
+
+	secret := viper.GetString("token-secret")
+	message := fmt.Sprintf("%s%s%d", nickname, secret, uid)
+
+	ok := validateMAC([]byte(message), messageMAC, []byte(secret))
+	if ok {
+		return uid, nil
+	}
+
+	return 0, errors.New("token is illegal")
+}
+
+func macSha256(message, secret []byte) []byte {
+	mac := hmac.New(sha256.New, secret)
 	mac.Write(message)
 	return mac.Sum(nil)
+}
+
+func validateMAC(message, messageMAC, secret []byte) bool {
+	mac := hmac.New(sha256.New, secret)
+	mac.Write(message)
+	expectedMAC := mac.Sum(nil)
+	return hmac.Equal(messageMAC, expectedMAC)
 }

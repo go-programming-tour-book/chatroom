@@ -7,8 +7,6 @@ import (
 	"nhooyr.io/websocket"
 	"nhooyr.io/websocket/wsjson"
 
-	"github.com/spf13/cast"
-
 	"github.com/polaris1119/chatroom/logic"
 )
 
@@ -23,7 +21,7 @@ func WebSocketHandleFunc(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// 1. 新用户进来，构建该用户的实例
-	uid := cast.ToInt(req.FormValue("uid"))
+	token := req.FormValue("token")
 	nickname := req.FormValue("nickname")
 	if l := len(nickname); l < 2 || l > 20 {
 		log.Println("nickname illegal: ", nickname)
@@ -38,7 +36,7 @@ func WebSocketHandleFunc(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	user := logic.NewUser(conn, uid, nickname, req.RemoteAddr)
+	user := logic.NewUser(conn, token, nickname, req.RemoteAddr)
 
 	// 2. 开启给用户发送消息的 goroutine
 	go user.SendMessage(req.Context())
