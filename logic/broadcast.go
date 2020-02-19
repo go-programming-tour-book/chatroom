@@ -2,6 +2,7 @@ package logic
 
 import (
 	"log"
+	"sync"
 )
 
 const (
@@ -10,6 +11,7 @@ const (
 
 // broadcaster 广播器
 type broadcaster struct {
+	// 所有聊天室用户
 	users map[string]*User
 
 	// 所有 channel 统一管理，可以避免外部乱用
@@ -34,7 +36,9 @@ var Broadcaster = &broadcaster{
 	checkUserCanInChannel: make(chan bool),
 }
 
-func (b *broadcaster) Broadcast() {
+// Start 启动广播器
+// 需要在一个新 goroutine 中运行，因为它不会返回
+func (b *broadcaster) Start() {
 	for {
 		select {
 		case user := <-b.enteringChannel:
@@ -42,6 +46,8 @@ func (b *broadcaster) Broadcast() {
 			b.users[user.NickName] = user
 
 			b.sendUserList()
+
+			go OfflineProcessor.Send(user)
 		case user := <-b.leavingChannel:
 			// 用户离开
 			delete(b.users, user.NickName)
@@ -57,6 +63,7 @@ func (b *broadcaster) Broadcast() {
 				}
 				user.MessageChannel <- msg
 			}
+			OfflineProcessor.Save(msg)
 		case nickname := <-b.checkUserChannel:
 			if _, ok := b.users[nickname]; ok {
 				b.checkUserCanInChannel <- false
@@ -67,24 +74,35 @@ func (b *broadcaster) Broadcast() {
 	}
 }
 
-func (b *broadcaster) EnteringChannel() chan<- *User {
-	return b.enteringChannel
+func (b *broadcaster) UserEntering(u *User) {
+	b.enteringChannel <- u
 }
 
-func (b *broadcaster) LeavingChannel() chan<- *User {
-	return b.leavingChannel
+func (b *broadcaster) UserLeaving(u *User) {
+	b.leavingChannel <- u
 }
 
-func (b *broadcaster) MessageChannel() chan<- *Message {
-	return b.messageChannel
+func (b *broadcaster) Broadcast(msg *Message) {
+	b.messageChannel <- msg
 }
 
-func (b *broadcaster) CheckUserChannel() chan<- string {
-	return b.checkUserChannel
+func (b *broadcaster) CanEnterRoom(nickname string) bool {
+	b.checkUserChannel <- nickname
+
+	return <-b.checkUserCanInChannel
 }
 
-func (b *broadcaster) CheckUserCanInChannel() <-chan bool {
-	return b.checkUserCanInChannel
+var locker sync.RWMutex
+
+func (b *broadcaster) CanEnterRoomLock(nickname string) bool {
+	locker.Lock()
+	defer locker.Unlock()
+
+	if _, ok := b.users[nickname]; ok {
+		return true
+	}
+
+	return false
 }
 
 func (b *broadcaster) sendUserList() {

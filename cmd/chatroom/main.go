@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/polaris1119/chatroom/global"
 	"github.com/polaris1119/chatroom/server"
 )
 
@@ -17,12 +18,17 @@ var (
    |    |    | /----\   |
    |____|    |/      \  |
 
-Go语言之旅 —— 一起用Go做项目：ChatRoom，start on：%s
+Go编程之旅 —— 一起用Go做项目：ChatRoom，start on：%s
+
 `
 )
 
+func init() {
+	global.Init()
+}
+
 func main() {
-	fmt.Printf(banner+"\n", addr)
+	fmt.Printf(banner, addr)
 
 	server.RegisterHandle()
 

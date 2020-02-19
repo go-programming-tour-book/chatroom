@@ -4,14 +4,12 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
-	"os"
-	"path/filepath"
+
+	"github.com/polaris1119/chatroom/global"
 )
 
-var rootDir string
-
 func homeHandleFunc(w http.ResponseWriter, req *http.Request) {
-	tpl, err := template.ParseFiles(rootDir + "/static/home.html")
+	tpl, err := template.ParseFiles(global.RootDir + "/template/home.html")
 	if err != nil {
 		fmt.Fprint(w, "模板解析错误！")
 		return
@@ -22,27 +20,4 @@ func homeHandleFunc(w http.ResponseWriter, req *http.Request) {
 		fmt.Fprint(w, "模板执行错误！")
 		return
 	}
-}
-
-// inferRootDir 推断出项目根目录
-func inferRootDir() {
-	cwd, err := os.Getwd()
-	if err != nil {
-		panic(err)
-	}
-	var infer func(d string) string
-	infer = func(d string) string {
-		if exists(d + "/static") {
-			return d
-		}
-
-		return infer(filepath.Dir(d))
-	}
-
-	rootDir = infer(cwd)
-}
-
-func exists(filename string) bool {
-	_, err := os.Stat(filename)
-	return err == nil || os.IsExist(err)
 }

@@ -7,6 +7,8 @@ import (
 	"nhooyr.io/websocket"
 	"nhooyr.io/websocket/wsjson"
 
+	"github.com/spf13/cast"
+
 	"github.com/polaris1119/chatroom/logic"
 )
 
@@ -21,39 +23,44 @@ func WebSocketHandleFunc(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// 1. 新用户进来，构建该用户的实例
+	uid := cast.ToInt(req.FormValue("uid"))
 	nickname := req.FormValue("nickname")
-	logic.Broadcaster.CheckUserChannel() <- nickname
-	if !<-logic.Broadcaster.CheckUserCanInChannel() {
+	if l := len(nickname); l < 2 || l > 20 {
+		log.Println("nickname illegal: ", nickname)
+		wsjson.Write(req.Context(), conn, logic.NewErrorMessage("非法昵称，昵称长度：4-20"))
+		conn.Close(websocket.StatusUnsupportedData, "nickname illegal!")
+		return
+	}
+	if !logic.Broadcaster.CanEnterRoom(nickname) {
 		log.Println("昵称已经存在：", nickname)
 		wsjson.Write(req.Context(), conn, logic.NewErrorMessage("该昵称已经已存在！"))
 		conn.Close(websocket.StatusUnsupportedData, "nickname exists!")
 		return
 	}
 
-	user := logic.NewUser(conn, nickname, req.RemoteAddr)
+	user := logic.NewUser(conn, uid, nickname, req.RemoteAddr)
 
 	// 2. 开启给用户发送消息的 goroutine
 	go user.SendMessage(req.Context())
 
 	// 3. 给当前用户发送欢迎信息
-	user.MessageChannel <- logic.NewWelcomeMessage(nickname)
+	user.MessageChannel <- logic.NewWelcomeMessage(user)
 
 	// 给所有用户告知新用户到来
 	msg := logic.NewNoticeMessage(nickname + " 加入了聊天室")
-	logic.Broadcaster.MessageChannel() <- msg
+	logic.Broadcaster.Broadcast(msg)
 
-	// 4. 将该记录到全局的用户列表中，避免用锁
-	logic.Broadcaster.EnteringChannel() <- user
-	// logic.EnteringChannel <- user
+	// 4. 将该用户加入广播器的用列表中
+	logic.Broadcaster.UserEntering(user)
 	log.Println("user:", nickname, "joins chat")
 
-	// 5. 读取用户输入
+	// 5. 接收用户消息
 	err = user.ReceiveMessage(req.Context())
 
 	// 6. 用户离开
-	logic.Broadcaster.LeavingChannel() <- user
+	logic.Broadcaster.UserLeaving(user)
 	msg = logic.NewNoticeMessage(user.NickName + " 离开了聊天室")
-	logic.Broadcaster.MessageChannel() <- msg
+	logic.Broadcaster.Broadcast(msg)
 	log.Println("user:", nickname, "leaves chat")
 
 	// 根据读取时的错误执行不同的 Close

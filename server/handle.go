@@ -7,12 +7,9 @@ import (
 )
 
 func RegisterHandle() {
-	inferRootDir()
-
 	// 广播消息处理
-	go logic.Broadcaster.Broadcast()
+	go logic.Broadcaster.Start()
 
 	http.HandleFunc("/", homeHandleFunc)
-
 	http.HandleFunc("/ws", WebSocketHandleFunc)
 }

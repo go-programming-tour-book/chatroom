@@ -38,7 +38,10 @@
         <div class="col-md-6">
             <div>聊天内容</div>
             <div class="msg-list" id="msg-list">
-                <div class="message" v-for="msg in msglist" v-bind:class="{ system: msg.type==1, myself: msg.user.nickname==nickname }">
+                <div class="message"
+                    v-for="msg in msglist"
+                    v-bind:class="{ system: msg.type==1, myself: msg.user.nickname==curUser.nickname }"
+                    >
                     <div class="meta" v-if="msg.user.nickname"><span class="author">${ msg.user.nickname }</span> at ${ formatDate(msg.msg_time) }</div>
                     <div>
                         <span class="content" style="white-space: pre-wrap;">${ msg.content }</span>
@@ -63,7 +66,7 @@
                 <div class="form-inline has-success text-center" style="margin-bottom: 10px;">
                     <div class="input-group">
                         <span class="input-group-addon">您的昵称</span>
-                        <input type="text" v-model="nickname" v-bind:disabled="joined" class="form-control" aria-describedby="inputGroupSuccess1Status">
+                        <input type="text" v-model="curUser.nickname" v-bind:disabled="joined" class="form-control" aria-describedby="inputGroupSuccess1Status">
                     </div>
                     <input type="submit" class="form-control btn-primary text-center" v-on:click="leavechat" v-if="joined" value="离开聊天室">
                     <input type="submit" class="form-control btn-primary text-center" v-on:click="joinchat" v-else="joined" value="进入聊天室">
@@ -88,7 +91,10 @@
         data: {
             msglist: [],
             content: "",
-            nickname: "",
+            curUser: {
+                uid: 0,
+                nickname: '',
+            },
             usertip: "当前还未进入聊天室，请在下方「填上您的昵称」",
 
             // 是否已经加入聊天室
@@ -97,9 +103,9 @@
             users: [],
         },
         mounted: function() {
-            let nickname = localStorage.getItem("nickname");
-            if (nickname) {
-                this.nickname = nickname;
+            let user = localStorage.getItem("user");
+            if (user) {
+                this.curUser = JSON.parse(user);
                 this.joinchat();
             }
 
@@ -114,21 +120,18 @@
             joinchat: function () {
                 let that = this;
 
-                if (this.nickname == "") {
+                if (this.curUser.nickname == "") {
                     this.usertip = "昵称不能为空";
                     return;
                 }
 
                 this.usertip = "";
-
                 this.joined = true;
-
-                localStorage.setItem("nickname", this.nickname);
 
                 if ("WebSocket" in window) {
                     let host = location.host;
                     // 打开一个 websocket 连接
-                    gWS = new WebSocket("ws://"+host+"/ws?nickname="+this.nickname);
+                    gWS = new WebSocket("ws://"+host+"/ws?nickname="+this.curUser.nickname+"&uid="+this.curUser.uid);
 
                     gWS.onopen = function () {
                         // WebSocket 已连接上的回调
@@ -137,7 +140,7 @@
                     gWS.onmessage = function (evt) {
                         let data = JSON.parse(evt.data);
                         if (data.type == 2) {
-                            that.usertip = "用户昵称已存在，请换一个！"
+                            that.usertip = data.content;
                             that.joined = false;
                         } else if (data.type == 3) {
                             // 用户列表
@@ -146,6 +149,13 @@
                                 that.users.push(data.users[nickname]);
                             }
                         } else {
+                            // 是系统消息，但用户是自己，表示是欢迎消息
+                            if (data.type == 1 && data.user.uid > 0) {
+                                that.curUser = data.user;
+                                localStorage.setItem('user', JSON.stringify(data.user));
+                                
+                                data.user = {nickname: '', uid: 0};
+                            }
                             that.addMsg2List(data);
                         }
                     };
@@ -156,7 +166,7 @@
                     };
 
                     gWS.onclose = function () {
-                        console.log("连接已关闭...");
+                        console.log("连接已关闭")
                     };
 
                 } else {
@@ -164,8 +174,9 @@
                 }
             },
             leavechat: function() {
-                localStorage.removeItem("nickname");
                 gWS.close();
+
+                that.msglist.splice(0);
 
                 this.addMsg2List({
                     user: {nickname: ""},
@@ -181,7 +192,8 @@
 
                 let data = {
                     user: {
-                        nickname: this.nickname,
+                        nickname: this.curUser.nickname,
+                        uid: this.curUser.uid,
                     },
                     content: this.content,
                     msg_time: new Date().getTime(),
@@ -196,21 +208,33 @@
             },
             formatDate: function(dateStr) {
                 let d = new Date(dateStr);
-                return d.toLocaleTimeString();
+                return d.toLocaleString();
             },
 
             addMsg2List: function(data) {
                 if (data.content == "") {
                     return;
                 }
+                
+                that = this;
+                if (data.ats != null) {
+                    data.ats.forEach(function(nickname) {
+                        if (nickname == '@'+that.nickname) {
+                            that.usertip = '有人 @ 你了';
+                        }
+                    })
+                }
 
                 this.msglist.push(data);
 
-                // 需要等待渲染？
-                setTimeout(function(){
+                Vue.nextTick(function() {
                     let msgList = document.querySelector('#msg-list');
                     msgList.scrollTop = msgList.scrollHeight;
-                }, 1);
+                })
+
+                setTimeout(function() {
+                    that.usertip = '';
+                }, 5000);
             },
 
             // 保活
