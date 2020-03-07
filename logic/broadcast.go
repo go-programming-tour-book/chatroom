@@ -1,13 +1,21 @@
 package logic
 
 import (
+	"expvar"
+	"fmt"
 	"log"
-	"sync"
+
+	"github.com/polaris1119/chatroom/global"
 )
 
-const (
-	MessageQueueLen = 8
-)
+func init() {
+	expvar.Publish("message_queue", expvar.Func(calcMessageQueueLen))
+}
+
+func calcMessageQueueLen() interface{} {
+	fmt.Println("===len=:", len(Broadcaster.messageChannel))
+	return len(Broadcaster.messageChannel)
+}
 
 // broadcaster 广播器
 type broadcaster struct {
@@ -23,6 +31,10 @@ type broadcaster struct {
 	// 判断该昵称用户是否可进入聊天室（重复与否）：true 能，false 不能
 	checkUserChannel      chan string
 	checkUserCanInChannel chan bool
+
+	// 获取用户列表
+	requestUsersChannel chan struct{}
+	usersChannel        chan []*User
 }
 
 var Broadcaster = &broadcaster{
@@ -30,10 +42,13 @@ var Broadcaster = &broadcaster{
 
 	enteringChannel: make(chan *User),
 	leavingChannel:  make(chan *User),
-	messageChannel:  make(chan *Message, MessageQueueLen),
+	messageChannel:  make(chan *Message, global.MessageQueueLen),
 
 	checkUserChannel:      make(chan string),
 	checkUserCanInChannel: make(chan bool),
+
+	requestUsersChannel: make(chan struct{}),
+	usersChannel:        make(chan []*User),
 }
 
 // Start 启动广播器
@@ -45,16 +60,12 @@ func (b *broadcaster) Start() {
 			// 新用户进入
 			b.users[user.NickName] = user
 
-			b.sendUserList()
-
-			go OfflineProcessor.Send(user)
+			OfflineProcessor.Send(user)
 		case user := <-b.leavingChannel:
 			// 用户离开
 			delete(b.users, user.NickName)
 			// 避免 goroutine 泄露
 			user.CloseMessageChannel()
-
-			b.sendUserList()
 		case msg := <-b.messageChannel:
 			// 给所有在线用户发送消息
 			for _, user := range b.users {
@@ -70,6 +81,13 @@ func (b *broadcaster) Start() {
 			} else {
 				b.checkUserCanInChannel <- true
 			}
+		case <-b.requestUsersChannel:
+			userList := make([]*User, 0, len(b.users))
+			for _, user := range b.users {
+				userList = append(userList, user)
+			}
+
+			b.usersChannel <- userList
 		}
 	}
 }
@@ -83,6 +101,9 @@ func (b *broadcaster) UserLeaving(u *User) {
 }
 
 func (b *broadcaster) Broadcast(msg *Message) {
+	if len(b.messageChannel) >= global.MessageQueueLen {
+		log.Println("broadcast queue 满了")
+	}
 	b.messageChannel <- msg
 }
 
@@ -92,24 +113,7 @@ func (b *broadcaster) CanEnterRoom(nickname string) bool {
 	return <-b.checkUserCanInChannel
 }
 
-var locker sync.RWMutex
-
-func (b *broadcaster) CanEnterRoomLock(nickname string) bool {
-	locker.Lock()
-	defer locker.Unlock()
-
-	if _, ok := b.users[nickname]; ok {
-		return true
-	}
-
-	return false
-}
-
-func (b *broadcaster) sendUserList() {
-	// 避免死锁，存在用户看到的列表没及时更新的可能性
-	if len(b.messageChannel) < MessageQueueLen {
-		b.messageChannel <- NewUserListMessage(b.users)
-	} else {
-		log.Println("消息并发量过大，导致 MessageChannel 拥堵。。。")
-	}
+func (b *broadcaster) GetUserList() []*User {
+	b.requestUsersChannel <- struct{}{}
+	return <-b.usersChannel
 }

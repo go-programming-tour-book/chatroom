@@ -40,9 +40,9 @@
             <div class="msg-list" id="msg-list">
                 <div class="message"
                     v-for="msg in msglist"
-                    v-bind:class="{ system: msg.type==1, myself: msg.user.nickname==curUser.nickname }"
+                    v-bind:class="{ system: msg.type>0, myself: msg.user.nickname==curUser.nickname }"
                     >
-                    <div class="meta" v-if="msg.user.nickname"><span class="author">${ msg.user.nickname }</span> at ${ formatDate(msg.msg_time) }</div>
+                    <div class="meta" v-if="msg.type==0"><span class="author">${ msg.user.nickname }</span> at ${ formatDate(msg.msg_time) } ${ calc(msg) }</div>
                     <div>
                         <span class="content" style="white-space: pre-wrap;">${ msg.content }</span>
                     </div>
@@ -102,6 +102,7 @@
             joined: false,
 
             users: [],
+            indexMap: {},
         },
         mounted: function() {
             let user = localStorage.getItem("user");
@@ -115,7 +116,7 @@
         computed: {
             onlineUserNum: function() {
                 return this.users.length;
-            }
+            },
         },
         methods: {
             joinchat: function () {
@@ -140,25 +141,38 @@
 
                     gWS.onmessage = function (evt) {
                         let data = JSON.parse(evt.data);
-                        if (data.type == 2) {
+                        if (data.type == 4) {
                             that.usertip = data.content;
                             that.joined = false;
+                            return;
+                        } else if (data.type == 1) {
+                            // 欢迎消息
+                            that.curUser = data.user;
+                            localStorage.setItem('user', JSON.stringify(data.user));
+                            
+                            data.user = {nickname: '', uid: 0};
+                            
+                            that.fetchUserList();
+                        } else if (data.type == 2) {
+                            // 某个用户进入
+                            let user = data.user;
+                            let len = that.users.length;
+                            that.users.push(user);
+                            that.indexMap[user.nickname] = len;
                         } else if (data.type == 3) {
-                            // 用户列表
-                            that.users.splice(0);
-                            for (let nickname in data.users) {
-                                that.users.push(data.users[nickname]);
+                            // 某个用户退出
+                            let nickname = data.user.nickname;
+                            let idx = that.indexMap[nickname];
+
+                            that.users.splice(idx, 1);
+
+                            for (let i = idx; i < that.users.length; i++) {
+                                let nickname = that.users[i].nickname;
+                                that.indexMap[nickname] = i;
                             }
-                        } else {
-                            // 是系统消息，但用户是自己，表示是欢迎消息
-                            if (data.type == 1 && data.user.uid > 0) {
-                                that.curUser = data.user;
-                                localStorage.setItem('user', JSON.stringify(data.user));
-                                
-                                data.user = {nickname: '', uid: 0};
-                            }
-                            that.addMsg2List(data);
                         }
+
+                        that.addMsg2List(data);
                     };
 
                     gWS.onerror = function(evt) {
@@ -185,6 +199,8 @@
                     content: '您已离开聊天室，再见！',
                 });
 
+                this.users.splice(0);
+
                 this.joined = false;
             },
             sendChatContent: function() {
@@ -196,12 +212,39 @@
                         nickname: this.curUser.nickname,
                         uid: this.curUser.uid,
                     },
+                    type: 0,
                     content: this.content,
                     msg_time: new Date().getTime(),
                 };
 
                 this.addMsg2List(data);
                 this.content = "";
+            },
+            fetchUserList: function() {
+                let that = this;
+                // XMLHttpRequest对象用于在后台与服务器交换数据
+                var xhr = new XMLHttpRequest();
+                //每当readyState改变时就会触发onreadystatechange函数
+                //0: 请求未初始化
+                //1: 服务器连接已建立
+                //2: 请求已接收
+                //3: 请求处理中
+                //4: 请求已完成，且响应已就绪
+                xhr.open('GET', '/user_list', true)
+                xhr.onreadystatechange = function () {
+                    //readyStatus == 4说明请求已经完成
+                    if(xhr.readyState == 4 && xhr.status ==200) {
+                        that.users.splice(0);
+                        let users = JSON.parse(xhr.responseText);
+                        for (let i in users) {
+                            let user = users[i];
+                            that.indexMap[user.nickname] = that.users.length;
+                            that.users.push(user);
+                        }
+                    }
+                };
+                //发送数据
+                xhr.send();
             },
             // 换行
             lineFeed: function(evt) {
@@ -210,6 +253,19 @@
             formatDate: function(dateStr) {
                 let d = new Date(dateStr);
                 return d.toLocaleString();
+            },
+            calc: function(msg) {
+                if (typeof msg.client_send_time == "undefined") {
+                    return '';
+                }
+
+                let send = new Date(msg.client_send_time)
+                if (send.getFullYear() == 1) {
+                    return '';
+                }
+
+                let elaspe = msg.receive_time.getTime() - send.getTime();
+                return "耗时 " + elaspe + "ms";
             },
 
             addMsg2List: function(data) {
@@ -224,6 +280,12 @@
                             that.usertip = '有人 @ 你了';
                         }
                     })
+                }
+
+                data.receive_time = new Date();
+
+                if (this.msglist.length > 80) {
+                    this.msglist.splice(0, 40);
                 }
 
                 this.msglist.push(data);

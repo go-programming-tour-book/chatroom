@@ -5,6 +5,8 @@ import (
 	"log"
 	"net/http"
 
+	_ "net/http/pprof"
+
 	"github.com/polaris1119/chatroom/global"
 	"github.com/polaris1119/chatroom/server"
 )

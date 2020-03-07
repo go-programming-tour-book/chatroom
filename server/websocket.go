@@ -14,7 +14,7 @@ func WebSocketHandleFunc(w http.ResponseWriter, req *http.Request) {
 	// Accept 从客户端接受 WebSocket 握手，并将连接升级到 WebSocket。
 	// 如果 Origin 域与主机不同，Accept 将拒绝握手，除非设置了 InsecureSkipVerify 选项（通过第三个参数 AcceptOptions 设置）。
 	// 换句话说，默认情况下，它不允许跨源请求。如果发生错误，Accept 将始终写入适当的响应
-	conn, err := websocket.Accept(w, req, nil)
+	conn, err := websocket.Accept(w, req, &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
 		log.Println("websocket accept error:", err)
 		return
@@ -36,16 +36,21 @@ func WebSocketHandleFunc(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	user := logic.NewUser(conn, token, nickname, req.RemoteAddr)
+	userHasToken := logic.NewUser(conn, token, nickname, req.RemoteAddr)
 
 	// 2. 开启给用户发送消息的 goroutine
-	go user.SendMessage(req.Context())
+	go userHasToken.SendMessage(req.Context())
 
 	// 3. 给当前用户发送欢迎信息
-	user.MessageChannel <- logic.NewWelcomeMessage(user)
+	userHasToken.MessageChannel <- logic.NewWelcomeMessage(userHasToken)
+
+	// 避免 token 泄露
+	tmpUser := *userHasToken
+	user := &tmpUser
+	user.Token = ""
 
 	// 给所有用户告知新用户到来
-	msg := logic.NewNoticeMessage(nickname + " 加入了聊天室")
+	msg := logic.NewUserEnterMessage(user)
 	logic.Broadcaster.Broadcast(msg)
 
 	// 4. 将该用户加入广播器的用列表中
@@ -57,7 +62,7 @@ func WebSocketHandleFunc(w http.ResponseWriter, req *http.Request) {
 
 	// 6. 用户离开
 	logic.Broadcaster.UserLeaving(user)
-	msg = logic.NewNoticeMessage(user.NickName + " 离开了聊天室")
+	msg = logic.NewUserLeaveMessage(user)
 	logic.Broadcaster.Broadcast(msg)
 	log.Println("user:", nickname, "leaves chat")
 

@@ -10,3 +10,5 @@ sensitive:
 offline-num: 10
 
 token-secret: 1zrvOpl5u14Y
+
+message-queue: 1024

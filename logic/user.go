@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"strings"
 	"sync/atomic"
@@ -41,7 +42,7 @@ func NewUser(conn *websocket.Conn, token, nickname, addr string) *User {
 		NickName:       nickname,
 		Addr:           addr,
 		EnterAt:        time.Now(),
-		MessageChannel: make(chan *Message, 8),
+		MessageChannel: make(chan *Message, 32),
 		Token:          token,
 
 		conn: conn,
@@ -86,13 +87,15 @@ func (u *User) ReceiveMessage(ctx context.Context) error {
 			var closeErr websocket.CloseError
 			if errors.As(err, &closeErr) {
 				return nil
+			} else if errors.Is(err, io.EOF) {
+				return nil
 			}
 
 			return err
 		}
 
 		// 内容发送到聊天室
-		sendMsg := NewMessage(u, receiveMsg["content"])
+		sendMsg := NewMessage(u, receiveMsg["content"], receiveMsg["send_time"])
 		sendMsg.Content = FilterSensitive(sendMsg.Content)
 
 		// 解析 content，看看 @ 谁了

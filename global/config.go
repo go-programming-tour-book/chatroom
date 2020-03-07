@@ -7,6 +7,8 @@ import (
 
 var (
 	SensitiveWords []string
+
+	MessageQueueLen = 1024
 )
 
 func initConfig() {
@@ -18,6 +20,7 @@ func initConfig() {
 	}
 
 	SensitiveWords = viper.GetStringSlice("sensitive")
+	MessageQueueLen = viper.GetInt("message-queue")
 
 	viper.WatchConfig()
 	viper.OnConfigChange(func(e fsnotify.Event) {
