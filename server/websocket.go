@@ -25,7 +25,7 @@ func WebSocketHandleFunc(w http.ResponseWriter, req *http.Request) {
 	nickname := req.FormValue("nickname")
 	if l := len(nickname); l < 2 || l > 20 {
 		log.Println("nickname illegal: ", nickname)
-		wsjson.Write(req.Context(), conn, logic.NewErrorMessage("非法昵称，昵称长度：4-20"))
+		wsjson.Write(req.Context(), conn, logic.NewErrorMessage("非法昵称，昵称长度：2-20"))
 		conn.Close(websocket.StatusUnsupportedData, "nickname illegal!")
 		return
 	}
