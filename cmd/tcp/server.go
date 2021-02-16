@@ -121,6 +121,7 @@ func handleConn(conn net.Conn) {
 			select {
 			case <-timer.C:
 				conn.Close()
+				return
 			case <-userActive:
 				timer.Reset(d)
 			}
