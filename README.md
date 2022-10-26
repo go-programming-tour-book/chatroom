@@ -11,14 +11,11 @@
 - 作者：陈剑煜（煎鱼），GitHub：[@eddycjy](https://github.com/eddycjy)，微信公众号：脑子进煎鱼了。
 - 作者：徐新华（polaris），GitHub：[@polaris](https://github.com/polaris1119)，微信公众号：Go语言中文网。
 
-## 购买链接
+## 运行步骤
 
-- 京东：https://item.jd.com/12685249.html
-- 当当：http://product.dangdang.com/28982027.html
-- 天猫：https://detail.tmall.com/item.htm?id=622185710833
-
-## 关注我
-
-polarisxu 个人公众号
-
-![](polarisxu-qrcode-m.jpg)
+- 运行服务端
+```
+cd cmd/chatroom
+go run main.go
+```
+- 打开template/home.html文件

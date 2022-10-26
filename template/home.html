@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>聊天室 —— Go语言编程之旅</title>
+    <title>欢迎来到乐屋</title>
 
     <link href="https://cdn.bootcss.com/twitter-bootstrap/3.4.1/css/bootstrap.min.css" rel="stylesheet">
     <style>
@@ -11,7 +11,7 @@
         .message { align-self: flex-start; }
         .message .meta { color: #ccc; font-size: 12px; }
         .message .author { color: #999; font-weight: bold; }
-        .myself { background-color: #b0e46e !important; align-self: flex-end; }
+        .myself { background-color: #313c23 !important; align-self: flex-end; }
         .myself .meta { color: #2b2b2b; }
 
         .system { background-color: #f3f3f3; color: #ccc; align-self: center; }
@@ -29,7 +29,7 @@
     <div class="row">
         <div class="col-md-12">
             <div class="page-header">
-                <h2 class="text-center">欢迎来到《Go 语言编程之旅：一起用 Go 做项目》聊天室</h2>
+                <h2 class="text-center">欢迎来到乐屋</h2>
             </div>
         </div>
     </div>
@@ -131,7 +131,8 @@
                 this.joined = true;
 
                 if ("WebSocket" in window) {
-                    let host = location.host;
+                    // let host = location.host;
+                    host = '127.0.0.1:2022'
                     // 打开一个 websocket 连接
                     gWS = new WebSocket("ws://"+host+"/ws?nickname="+this.curUser.nickname+"&token="+this.curUser.token);
 
